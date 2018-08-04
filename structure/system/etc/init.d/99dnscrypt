@@ -78,13 +78,13 @@ case "$1" in
 	checkpid
 	status=$?
 	
-	if[ ! $status -eq 0 ]; then   
+	if [ $status -ne 0 ]; then   
 		log_info_msg "Starting $DESC"
 		nohup $DAEMON -config $CONFIG_FILE -- $DAEMON_ARGS \
 			-pidfile=$PIDFILE >/dev/null 2>&1 &
 		pid=$! && echo $pid > $PIDFILE
 		
-		if test wait_for_daemon $pid
+		if wait_for_daemon $pid
 		then
 			log_info_msg "Enabling iptables firewall rules"
 			do_iptables_rules 0
@@ -106,19 +106,19 @@ case "$1" in
 	checkpid
 	status=$?
 	
-	if[ $status -eq 1 ]; then
+	if [ $status -eq 1 ]; then
 		log_info_msg "not running - there is no $PIDFILE"
 		exit 1
 	else
 		log_info_msg "Stopping $DESC $NAME"
 		pid=`cat $PIDFILE 2>/dev/null` || true
+		rm $PIDFILE
 		
 		if kill $pid 2>/dev/null; then
 			log_info_msg "Disabling iptables firewall rules"
 			do_iptables_rules 1
-			rm $PIDFILE
 		elif kill -0 $pid 2>/dev/null; then
-			log_info_msg 1 "Is $pid not $NAME?"
+			log_info_msg "Is $pid not $NAME?"
 			exit 1
 		else
 			log_error_msg "$DAEMON died: process $pid not running; or permission denied."
@@ -133,7 +133,7 @@ case "$1" in
 	
 	EXITSTATUS=${STATUS_CODE[status]}
 	
-	if[ $status -eq 0 ];	then
+	if [ $status -eq 0 ];	then
 		EXITSTATUS=${STATUS_CODE[status]}" (PID `cat $PIDFILE`)"
 	fi
 	
