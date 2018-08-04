@@ -34,7 +34,7 @@
             description="execute complete build"/>
 
     <!--=======================================================================-->
-    <!-- zero                                                                  -->
+    <!-- project                                                                  -->
     <!--=======================================================================-->
     <target name="buildPackage"
             description="execute build the package">
@@ -43,7 +43,7 @@
         <property name="file.name" value="${build.dir}/DNSCRYPT-DAEMON.${PRODUCT_VERSION_MAJOR}.${PRODUCT_VERSION_MINOR}.${PRODUCT_VERSION_MAINTENANCE}-${build.today}.zip"/>
         <delete dir="${work.dir}"/>
         <propertyfile file="${build.dir}/props.filenames">
-            <entry key="zerofilename" value="${file.name}"/>
+            <entry key="filename" value="${file.name}"/>
         </propertyfile>
         <!-- copy files -->
         <copy todir="${work.dir}">
@@ -54,12 +54,12 @@
         
         <!-- generate backup script --> 
         <fileset id="item.file" dir="${work.dir}/system" includes="**/*"/>
-        <pathconvert refid="item.file" property="file.list.zero" pathsep="&#10;" dirsep="/">
+        <pathconvert refid="item.file" property="file.list" pathsep="&#10;" dirsep="/">
             <map from="${work.dir}/system/" to=''/>
         </pathconvert>
         <copy file="${app.dir}/extras/99-dnscrypt.sh" todir="${work.dir}/system/addon.d">
             <filterchain>
-                <replaceregex pattern="@file.list@" replace="${file.list.zero}" flags="i"/>
+                <replaceregex pattern="@file.list@" replace="${file.list}" flags="i"/>
             </filterchain>
         </copy>
 
@@ -113,7 +113,6 @@
             description="delete unnecessary build files">
         <echo message="Cleaning up"/>
         <delete file="${build.dir}/unsigned.zip"/>
-        <delete file="${build.dir}/props.filenames"/>
     </target>
 
     <!--=======================================================================-->
