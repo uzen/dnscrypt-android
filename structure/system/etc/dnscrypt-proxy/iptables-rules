@@ -1,0 +1,31 @@
+################################
+#        Iptables rules        #
+################################
+
+IPTABLES=/system/bin/iptables
+IP6TABLES=/system/bin/ip6tables
+
+do_iptables_rules () {
+	case "$1" in
+		0) #enable
+			enable_rules $IPTABLES 127.0.0.1:5353
+			;;
+			
+		1) #disable
+			disable_rules $IPTABLES 127.0.0.1:5353
+			;;
+			
+	esac
+}
+
+enable_rules () {
+	IPT=$1
+	$IPT -t nat -A OUTPUT -p tcp --dport 53 -j DNAT --to-destination $2
+	$IPT -t nat -A OUTPUT -p udp --dport 53 -j DNAT --to-destination $2
+}
+
+disable_rules () {
+	IPT=$1
+	$IPT -t nat -D OUTPUT -p tcp --dport 53 -j DNAT --to-destination $2
+	$IPT -t nat -D OUTPUT -p udp --dport 53 -j DNAT --to-destination $2
+}

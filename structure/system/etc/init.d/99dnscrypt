@@ -6,52 +6,143 @@ NAME=dnscrypt
 DESC="DNSCrypt client proxy"
 PIDFILE=/data/local/tmp/dnscrypt-proxy.pid
 CONFIG_FILE=/system/etc/dnscrypt-proxy/dnscrypt-proxy.toml
+WAITFORDAEMON=30
 DAEMON_ARGS=
 
 
-# Print info
-LI="log -p i -t $NAME"
+. /system/etc/dnscrypt-proxy/iptables-rules
 
 # Exit if the package is not installed
-[ -x "$DAEMON" ] || exit 0
+test -x $DAEMON || exit 0
+
+log_info_msg () {
+	log -p i -t $NAME "$@" || true
+}
+
+log_error_msg () {
+	log -p e -t $NAME "$@" || true
+}
+
+log_action_cont_msg () {
+    log_info_msg "$@..." || true
+}
+
+STATUS_CODE[0]="Is Running"
+STATUS_CODE[1]="Not Running"
+STATUS_CODE[2]="Stopped incorrectly"
+
+checkpid () {
+	pid=`cat $PIDFILE 2>/dev/null` || true
+	if test ! -f $PIDFILE -o -z "$pid"; then
+		return 1
+	fi
+	
+	if ps "$pid" >/dev/null 2>&1; then
+		return 0
+	fi
+	
+	return 2
+}
+
+wait_for_daemon () {
+	pid=$1
+	sleep 1
+	if test -n "$pid"
+	then
+		if ! kill -0 $pid 2>/dev/null
+		then
+			cnt=0
+			while ! kill -0 $pid 2>/dev/null
+			do
+				cnt=`expr $cnt + 1`
+				if [ $cnt -gt $WAITFORDAEMON ]
+				then
+					log_info_msg "$NAME still not running"
+					return 1
+				fi
+				sleep 1
+				[ "`expr $cnt % 3`" != 2 ] || log_action_cont_msg " "
+			done
+		fi
+	fi
+	return 0
+}
 
 case "$1" in
   start)
-	if [ ! -s "$CONFIG_FILE" ]; then
-		$LI "missing config file $CONFIG_FILE"
-		exit 1
+	if test ! -s "$CONFIG_FILE"; then
+		log_info_msg "Missing config file $CONFIG_FILE"
+		exit 0
 	fi
-    
-	$LI "Starting $DESC $NAME"
-	$DAEMON -config $CONFIG_FILE -- $DAEMON_ARGS \
-		-pidfile=$PIDFILE >/dev/null 2>&1
+	
+	checkpid
+	status=$?
+	
+	if[ ! $status -eq 0 ]; then   
+		log_info_msg "Starting $DESC"
+		nohup $DAEMON -config $CONFIG_FILE -- $DAEMON_ARGS \
+			-pidfile=$PIDFILE >/dev/null 2>&1 &
+		pid=$! && echo $pid > $PIDFILE
+		
+		if test wait_for_daemon $pid
+		then
+			log_info_msg "Enabling iptables firewall rules"
+			do_iptables_rules 0
+		else
+			log_error_msg "Iptables didn't apply any rules"
+			exit 1
+		fi
+	else
+		log_info_msg "Already running"
+	fi
 	;;
 	
   restart|force-reload|reload)
 	# nothing to do
-    :
+		:
 	;;
 	
   stop)
-	$LI "Stopping $DESC $NAME"
-	pid=`cat $PIDFILE 2>/dev/null` || true
+	checkpid
+	status=$?
 	
-	if test ! -f $PIDFILE -o -z "$pid"; then
-		$LI "not starting daemon."
-		exit 2
-	fi
-	
-	if kill $pid 2>/dev/null; then
-		rm $PIDFILE
+	if[ $status -eq 1 ]; then
+		log_info_msg "not running - there is no $PIDFILE"
+		exit 1
 	else
-		$LI "$DAEMON died: process $pid not running; or permission denied."
-		exit 3
+		log_info_msg "Stopping $DESC $NAME"
+		pid=`cat $PIDFILE 2>/dev/null` || true
+		
+		if kill $pid 2>/dev/null; then
+			log_info_msg "Disabling iptables firewall rules"
+			do_iptables_rules 1
+			rm $PIDFILE
+		elif kill -0 $pid 2>/dev/null; then
+			log_info_msg 1 "Is $pid not $NAME?"
+			exit 1
+		else
+			log_error_msg "$DAEMON died: process $pid not running; or permission denied."
+			exit 1
+		fi	
 	fi
 	;;
 	
+  status)
+	checkpid
+	status=$?
+	
+	EXITSTATUS=${STATUS_CODE[status]}
+	
+	if[ $status -eq 0 ];	then
+		EXITSTATUS=${STATUS_CODE[status]}" (PID `cat $PIDFILE`)"
+	fi
+	
+	log_info_msg "$NAME - $EXITSTATUS"
+	;;
+	
   *)
-	echo "Usage: $0 {start|stop|restart|force-reload|reload}" >&2
-	exit 4
+	echo "Usage: $0 {start|stop|restart|force-reload|reload|status}" >&2
+	exit 3
 	;;
 esac
 
