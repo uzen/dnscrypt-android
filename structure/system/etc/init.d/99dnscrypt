@@ -1,0 +1,58 @@
+#!/system/bin/sh
+
+# /etc/init.d/99dnscrypt: start and stop the dnscrypt daemon
+DAEMON=/system/xbin/dnscrypt-proxy
+NAME=dnscrypt
+DESC="DNSCrypt client proxy"
+PIDFILE=/data/local/tmp/dnscrypt-proxy.pid
+CONFIG_FILE=/system/etc/dnscrypt-proxy/dnscrypt-proxy.toml
+DAEMON_ARGS=
+
+
+# Print info
+LI="log -p i -t $NAME"
+
+# Exit if the package is not installed
+[ -x "$DAEMON" ] || exit 0
+
+case "$1" in
+  start)
+	if [ ! -s "$CONFIG_FILE" ]; then
+		$LI "missing config file $CONFIG_FILE"
+		exit 1
+	fi
+    
+	$LI "Starting $DESC $NAME"
+	$DAEMON -config $CONFIG_FILE -- $DAEMON_ARGS \
+		-pidfile=$PIDFILE >/dev/null 2>&1
+	;;
+	
+  restart|force-reload|reload)
+	# nothing to do
+    :
+	;;
+	
+  stop)
+	$LI "Stopping $DESC $NAME"
+	pid=`cat $PIDFILE 2>/dev/null` || true
+	
+	if test ! -f $PIDFILE -o -z "$pid"; then
+		$LI "not starting daemon."
+		exit 2
+	fi
+	
+	if kill $pid 2>/dev/null; then
+		rm $PIDFILE
+	else
+		$LI "$DAEMON died: process $pid not running; or permission denied."
+		exit 3
+	fi
+	;;
+	
+  *)
+	echo "Usage: $0 {start|stop|restart|force-reload|reload}" >&2
+	exit 4
+	;;
+esac
+
+exit 0
