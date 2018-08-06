@@ -1,10 +1,11 @@
 #!/system/bin/sh
 
 # /etc/init.d/99dnscrypt: start and stop the dnscrypt daemon
-DAEMON=/system/xbin/dnscrypt-proxy
-NAME=dnscrypt
+NAME=dnscrypt-proxy
+DAEMON=/system/xbin/$NAME
 DESC="DNSCrypt client proxy"
 PIDFILE=/data/local/tmp/dnscrypt-proxy.pid
+LOCKFILE=/data/local/tmp/dnscrypt-proxy.lock
 CONFIG_FILE=/system/etc/dnscrypt-proxy/dnscrypt-proxy.toml
 WAITFORDAEMON=30
 DAEMON_ARGS=
@@ -16,33 +17,38 @@ DAEMON_ARGS=
 test -x $DAEMON || exit 0
 
 log_info_msg () {
+	echo "$NAME: $@" || true
 	log -p i -t $NAME "$@" || true
 }
 
 log_error_msg () {
+	echo "$NAME: $@" || true
 	log -p e -t $NAME "$@" || true
 }
 
-log_action_cont_msg () {
-    log_info_msg "$@..." || true
-}
-
-STATUS_CODE[0]="Is Running"
-STATUS_CODE[1]="Not Running"
-STATUS_CODE[2]="Stopped incorrectly"
-
-checkpid () {
-	pid=`cat $PIDFILE 2>/dev/null` || true
-	if test ! -f $PIDFILE -o -z "$pid"; then
-		return 1
-	fi
-	
-	if ps "$pid" >/dev/null 2>&1; then
-		return 0
+pidofproc () {
+	if [ -n "${PIDFILE:-}" ] || [ -e "$PIDFILE" ]; then
+   	if [ -r "$PIDFILE" ]; then
+			read pid < "$PIDFILE"
+   		if [ -n "${pid:-}" ]; then
+   			if $(kill -0 "${pid:-}" 2> /dev/null); then
+         		return 0
+   			elif ps "${pid:-}" >/dev/null 2>&1; then
+					return 0 # program is running
+      		else
+      			return 1 # program is dead and pid file exists
+     			fi
+   		fi
+      fi
+   fi
+   
+   if ! ps | grep $NAME; then
+   	return 1 # program is not running
 	fi
 	
 	return 2
 }
+
 
 wait_for_daemon () {
 	pid=$1
@@ -52,8 +58,7 @@ wait_for_daemon () {
 		if ! kill -0 $pid 2>/dev/null
 		then
 			cnt=0
-			while ! kill -0 $pid 2>/dev/null
-			do
+			while ! kill -0 $pid 2>/dev/null ; do
 				cnt=`expr $cnt + 1`
 				if [ $cnt -gt $WAITFORDAEMON ]
 				then
@@ -61,7 +66,7 @@ wait_for_daemon () {
 					return 1
 				fi
 				sleep 1
-				[ "`expr $cnt % 3`" != 2 ] || log_action_cont_msg " "
+				[ "`expr $cnt % 3`" != 2 ] || log_info_msg "..."
 			done
 		fi
 	fi
@@ -71,73 +76,87 @@ wait_for_daemon () {
 case "$1" in
   start)
 	if test ! -s "$CONFIG_FILE"; then
-		log_info_msg "Missing config file $CONFIG_FILE"
+		log_info_msg "missing config file $CONFIG_FILE"
 		exit 0
 	fi
 	
-	checkpid
-	status=$?
+	if test -s "$LOCKFILE"; then
+		log_info_msg "network first returned no response, running in fallback mode"
+		ipv4_addr_unlock && rm $LOCKFILE
+		
+		$0 restart
+		exit 1
+	fi
 	
-	if [ $status -ne 0 ]; then   
-		log_info_msg "Starting $DESC"
-		nohup $DAEMON -config $CONFIG_FILE -- $DAEMON_ARGS \
-			-pidfile=$PIDFILE >/dev/null 2>&1 &
+	status="0"
+	pidofproc >/dev/null || status="$?"
+	
+	if [ "$status" = 0 ]; then
+		log_info_msg "already running"
+		exit 0
+	else
+		log_info_msg "starting $DESC"
+		
+		setsid $DAEMON -config $CONFIG_FILE -- $DAEMON_ARGS \
+			-pidfile=$PIDFILE </dev/null > /dev/null 2>&1 &
 		pid=$! && echo $pid > $PIDFILE
 		
 		if wait_for_daemon $pid
 		then
-			log_info_msg "Enabling iptables firewall rules"
+			log_info_msg "enabling iptables firewall rules"
 			do_iptables_rules 0
 		else
-			log_error_msg "Iptables didn't apply any rules"
+			log_error_msg "iptables didn't apply rules"
+			ipv4_addr_lock && echo "ipv4-enabled=false" >> $LOCKFILE
 			exit 1
 		fi
-	else
-		log_info_msg "Already running"
 	fi
 	;;
 	
   restart|force-reload|reload)
 	# nothing to do
-		:
+		$0 stop
+		sleep 1
+		$0 start
 	;;
 	
   stop)
-	checkpid
-	status=$?
+	status="0"
+	pidofproc >/dev/null || status="$?"
 	
-	if [ $status -eq 1 ]; then
-		log_info_msg "not running - there is no $PIDFILE"
-		exit 1
-	else
-		log_info_msg "Stopping $DESC $NAME"
+	if [ "$status" = 0 ]; then
+		log_info_msg "stopping $DESC $NAME"
 		pid=`cat $PIDFILE 2>/dev/null` || true
-		rm $PIDFILE
 		
 		if kill $pid 2>/dev/null; then
-			log_info_msg "Disabling iptables firewall rules"
+			log_info_msg "disabling iptables firewall rules"
 			do_iptables_rules 1
-		elif kill -0 $pid 2>/dev/null; then
-			log_info_msg "Is $pid not $NAME?"
-			exit 1
-		else
-			log_error_msg "$DAEMON died: process $pid not running; or permission denied."
-			exit 1
-		fi	
+		else 
+			log_info_msg "Is $pid not $NAME? Is $DAEMON a different binary now?"
+		fi
+		
+		rm $PIDFILE
+	elif [ "$status" = 2 ]; then
+		log_info_msg "not running - there is no $PIDFILE"
+		killall $NAME >/dev/null 2>&1
+		
+		exit 1
 	fi
 	;;
 	
   status)
-	checkpid
-	status=$?
+	status="0"
+	pidofproc >/dev/null || status="$?"
 	
-	EXITSTATUS=${STATUS_CODE[status]}
-	
-	if [ $status -eq 0 ];	then
-		EXITSTATUS=${STATUS_CODE[status]}" (PID `cat $PIDFILE`)"
+	if [ "$status" = 0 ]; then
+      log_info_msg "$NAME is running"
+	elif [ "$status" = 1 ]; then
+		log_info_msg "$NAME is not running"
+	else
+		log_error_msg "could not access PID file (`cat $PIDFILE`) for $NAME"		
 	fi
 	
-	log_info_msg "$NAME - $EXITSTATUS"
+	exit $status
 	;;
 	
   *)
