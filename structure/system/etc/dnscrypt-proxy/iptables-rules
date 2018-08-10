@@ -47,7 +47,7 @@ ipv4_addr_lock () {
 	$IPTABLES -L FORWARD | grep -q 'mreject' || $IPTABLES -I FORWARD 1 -j "mreject"
 	echo "1" > /proc/sys/net/ipv4/conf/all/disable_policy
 	echo "1" > /proc/sys/net/ipv4/conf/default/disable_policy
-	if [-d /proc/sys/net/ipv4/conf/$WIFI_INT]; then
+	if [ -d /proc/sys/net/ipv4/conf/$WIFI_INT ]; then
 		echo "1" > /proc/sys/net/ipv4/conf/$WIFI_INT/disable_policy
 	fi;
 }
@@ -64,7 +64,7 @@ ipv4_addr_unlock () {
 	$IPTABLES -X mreject
 	echo "0" > /proc/sys/net/ipv4/conf/all/disable_policy
 	echo "0" > /proc/sys/net/ipv4/conf/default/disable_policy
-	if [-d /proc/sys/net/ipv4/conf/$WIFI_INT]; then
+	if [ -d /proc/sys/net/ipv4/conf/$WIFI_INT ]; then
 		echo "0" > /proc/sys/net/ipv4/conf/$WIFI_INT/disable_policy;
 	fi;
 }
