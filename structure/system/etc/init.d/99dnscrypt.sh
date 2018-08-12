@@ -46,7 +46,7 @@ pidofproc () {
    if [ -n "${PIDFILE:-}" ] && [ -e "$PIDFILE" ] && [ -r "$PIDFILE" ]; then
    	read pid < "$PIDFILE"
    	if [ -n "${pid:-}" ]; then
-			if $(kill -0 "${pid:-}" 2> /dev/null); then
+			if kill -0 "${pid:-}" 2> /dev/null; then
       		return 0
 			elif ps "${pid:-}" >/dev/null 2>&1; then
 				return 0 # program is running
@@ -64,24 +64,23 @@ pidofproc () {
 }
 
 wait_for_daemon () {
-	pid=$1
-	sleep 1
-	if [ -n "${pid:-}" ]; then
-		if $(kill -0 "${pid:-}" 2> /dev/null); then
-			cnt=0
-			while test ! -e $DCPIDDIR/*.md ; do
-				cnt=`expr $cnt + 1`
-				if [ $cnt -gt $WAITFORDAEMON ]
-				then
-					log_info_msg "still not running"
-					return 1
-				fi
-				sleep 1
-				[ "`expr $cnt % 3`" != 2 ] || log_info_msg "..."
-			done
-		fi
-	fi
-	return 0
+   sleep 1
+   
+   status="0"
+   pidofproc >/dev/null || status="$?"
+   
+   [ "$status" -ne 0 ] && return 1
+   
+   cnt=0
+   while test ! -e $DCPIDDIR/*.md ; do
+      cnt=`expr $cnt + 1`
+      if [ $cnt -gt $WAITFORDAEMON ]; then
+         log_info_msg "still not running"
+         return 1
+      fi
+      sleep 1
+      [ "`expr $cnt % 3`" != 2 ] || log_info_msg "..."
+   done
 }
 
 case "$1" in
@@ -95,9 +94,12 @@ case "$1" in
         check_dcpiddir
 	
         if test -s "$LOCKFILE"; then
-            CONFIG_DIR=$(dirname "$CONFIG_FILE")
-        		cp $CONFIG_DIR/{public-resolvers.md,minisign.pub} $DCPIDDIR/
-        		
+            CONFIG_DIR=`dirname "$CONFIG_FILE"`
+            cp $CONFIG_DIR/{public-resolvers.md,public-resolvers.md.minisig} $DCPIDDIR/
+            
+            log_info_msg "delete iptables firewall rules"
+            do_iptables_rules 1
+            
             log_info_msg "ipv4_addr_unlock: enable IPv4"
             ipv4_addr_unlock && rm -f $LOCKFILE
         fi
@@ -114,13 +116,14 @@ case "$1" in
             -pidfile=$PIDFILE </dev/null > /dev/null 2>&1 &
         pid=$! && echo $pid > $PIDFILE
 	
-        if wait_for_daemon $pid ; then
-            log_info_msg "enabling iptables firewall rules"
-            do_iptables_rules 0
-        else
+        if ! wait_for_daemon; then
             log_error_msg "ipv4_addr_lock: disable IPv4"
             ipv4_addr_lock && echo "ipv4-enabled=false" >> $LOCKFILE
+            exit 1
         fi
+        
+        log_info_msg "enabling iptables firewall rules"
+        do_iptables_rules 0
         ;;	
   stop) log_info_msg "stopping $DESC $NAME"
   
@@ -128,7 +131,7 @@ case "$1" in
         pidofproc >/dev/null || status="$?"
 	
         if [ "$status" = 0 ]; then
-            pid="$(cat $PIDFILE 2>/dev/null)" || true
+            pid=`cat $PIDFILE 2>/dev/null` || true
 		
             if kill $pid 2>/dev/null; then
                 log_info_msg "disabling iptables firewall rules"
@@ -155,7 +158,7 @@ case "$1" in
         elif [ "$status" = 1 ]; then
             log_info_msg "$NAME is NOT running"
         else
-            log_error_msg "could not access PID file $(cat $PIDFILE) for $NAME"		
+            log_error_msg "could not access PID file `cat $PIDFILE` for $NAME"		
         fi
 	
         exit $status
