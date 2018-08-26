@@ -8,14 +8,12 @@ PROXY_PORT=5353
 
 do_iptables_rules () {
 	case "$1" in
-		0) #enable
+		0) # enable
 			enable_rules
 			;;
-			
-		1) #disable
+		1) # disable
 			disable_rules
 			;;
-			
 	esac
 }
 
@@ -39,32 +37,20 @@ ipv4_addr_lock () {
 	$IPTABLES -P INPUT DROP
 	$IPTABLES -P OUTPUT DROP
 	$IPTABLES -P FORWARD DROP
-	$IPTABLES -F mreject
-	$IPTABLES -N mreject
-	$IPTABLES -A mreject -j DROP
-	$IPTABLES -L INPUT | grep -q 'mreject' || $IPTABLES -I INPUT 1 -j "mreject"
-	$IPTABLES -L OUTPUT | grep -q 'mreject' || $IPTABLES -I OUTPUT 1 -j "mreject"
-	$IPTABLES -L FORWARD | grep -q 'mreject' || $IPTABLES -I FORWARD 1 -j "mreject"
 	echo "1" > /proc/sys/net/ipv4/conf/all/disable_policy
 	echo "1" > /proc/sys/net/ipv4/conf/default/disable_policy
-	if [-d /proc/sys/net/ipv4/conf/$WIFI_INT]; then
+	if [ -d /proc/sys/net/ipv4/conf/$WIFI_INT ]; then
 		echo "1" > /proc/sys/net/ipv4/conf/$WIFI_INT/disable_policy
-	fi;
+	fi
 }
 
 ipv4_addr_unlock () {
 	$IPTABLES -P INPUT ACCEPT
 	$IPTABLES -P OUTPUT ACCEPT
-	$IPTABLES -P FORWARD DROP
-	$IPTABLES -L INPUT | grep -q 'mreject' && $IPTABLES -D INPUT -j "mreject"
-	$IPTABLES -L OUTPUT | grep -q 'mreject' && $IPTABLES -D OUTPUT -j "mreject"
-	$IPTABLES -L FORWARD | grep -q 'afwall-reject' || $IPTABLES -A FORWARD -j "afwall-reject"
-	$IPTABLES -L FORWARD | grep -q 'mreject' && $IPTABLES -D FORWARD -j "mreject"
-	$IPTABLES -F mreject
-	$IPTABLES -X mreject
+	$IPTABLES -P FORWARD ACCEPT
 	echo "0" > /proc/sys/net/ipv4/conf/all/disable_policy
 	echo "0" > /proc/sys/net/ipv4/conf/default/disable_policy
-	if [-d /proc/sys/net/ipv4/conf/$WIFI_INT]; then
-		echo "0" > /proc/sys/net/ipv4/conf/$WIFI_INT/disable_policy;
-	fi;
+	if [ -d /proc/sys/net/ipv4/conf/$WIFI_INT ]; then
+		echo "0" > /proc/sys/net/ipv4/conf/$WIFI_INT/disable_policy
+	fi
 }
