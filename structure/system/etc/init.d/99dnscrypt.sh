@@ -46,39 +46,39 @@ set_prop () {
 }
 
 check_health () {           
-   test -s "$LOCKFILE" || return
-
-   if [ "$(get_prop 'dnscrypt-resolvers')" = "none" ]; then
-   	configdir=`dirname "$CONFIG_FILE"`
-   	resolvers="public-resolvers.md"
-   	minisig="$resolvers.minisig"
-                
-   	timestamp=$(date +%s)
-   	timegen=$(sed -n 's/.*timestamp:*\([0-9]\{1,\}\).*/\1/p' $configdir/$minisig )
-   	
-   	let "_time=(timestamp-timegen)/3600"
-   	
-   	log_debug_msg "configuration of server sources:"
-   	if [ $_time -lt 72 ]; then # updated every 3 days
-   		log_debug_msg "copy $resolvers to $PIDDIR..."
-      	cp $configdir/{$resolvers,$minisig} $PIDDIR/
-      else
-      	intdir=/sdcard/$NAME
-      	if [ -e "$intdir/$resolvers" -o -e "$intdir/$minisig" ]; then
-      		log_debug_msg "copy $intdir/$resolvers to $PIDDIR..."
-      		cp $intdir/{$resolvers,$minisig} $PIDDIR/
-      	else
-      		log_debug_msg "$intdir/$resolvers(.minisig): file not found"
-      	fi
-      fi
+   if test -s "$LOCKFILE"; then
+		if [ "$(get_prop 'dnscrypt-resolvers')" = "none" ]; then
+			configdir=`dirname "$CONFIG_FILE"`
+			resolvers="public-resolvers.md"
+			minisig="$resolvers.minisig"
+	                
+			timestamp=$(date +%s)
+			timegen=$(sed -n 's/.*timestamp:*\([0-9]\{1,\}\).*/\1/p' $configdir/$minisig )
+	   	
+			let "_time=(timestamp-timegen)/3600"
+	   	
+	   	log_debug_msg "configuration of server sources:"
+	   	if [ $_time -lt 72 ]; then # updated every 3 days
+	   		log_debug_msg "copy $resolvers to $PIDDIR..."
+	      	cp $configdir/{$resolvers,$minisig} $PIDDIR/
+	      else
+	      	intdir=/sdcard/$NAME
+	      	if [ -e "$intdir/$resolvers" -o -e "$intdir/$minisig" ]; then
+	      		log_debug_msg "copy $intdir/$resolvers to $PIDDIR..."
+	      		cp $intdir/{$resolvers,$minisig} $PIDDIR/
+	      	else
+	      		log_debug_msg "$intdir/$resolvers(.minisig): file not found"
+	      	fi
+	      fi
+	   fi
+	            
+	   if [ "$(get_prop 'ipv4-enabled')" = "false" ]; then
+	      log_debug_msg "ipv4_addr_unlock: enable IPv4"
+	      ipv4_addr_unlock
+	   fi
+	            
+	   rm -f $LOCKFILE
    fi
-            
-   if [ "$(get_prop 'ipv4-enabled')" = "false" ]; then
-      log_debug_msg "ipv4_addr_unlock: enable IPv4"
-      ipv4_addr_unlock
-   fi
-            
-   rm -f $LOCKFILE
 }
 
 status_of_proc () {
