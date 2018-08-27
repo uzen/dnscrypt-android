@@ -24,11 +24,14 @@ enable_rules () {
 }
 
 disable_rules () {
-	IPC=( "tcp" "udp" )
+	IPvX=( "$IPTABLES" )
 	
-	for i in "${IPC[@]}" ; do
-		while $IPTABLES -n -t nat -L OUTPUT | grep -q "DNAT.*$i.*dpt:53.*to:127.0.0.1:$PROXY_PORT" ; do
-			$IPTABLES -t nat -D OUTPUT -p $i --dport 53 -j DNAT --to-destination 127.0.0.1:$PROXY_PORT
+	for ipt in "${IPvX[@]}" ; do
+		while $ipt -n -t nat -L OUTPUT | grep -q "DNAT.*tcp.*dpt:53.*to:127.0.0.1:$PROXY_PORT" ; do
+			$ipt -t nat -D OUTPUT -p tcp --dport 53 -j DNAT --to-destination 127.0.0.1:$PROXY_PORT
+		done
+		while $ipt -n -t nat -L OUTPUT | grep -q "DNAT.*udp.*dpt:53.*to:127.0.0.1:$PROXY_PORT" ; do
+			$ipt -t nat -D OUTPUT -p udp --dport 53 -j DNAT --to-destination 127.0.0.1:$PROXY_PORT
 		done
 	done
 }
