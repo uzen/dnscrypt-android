@@ -1,0 +1,212 @@
+# init-functions for dnscrypt
+
+getpropf () {
+	if [ ! -f "$1" ] || [ -z "${2:-}" ]; then
+		return 1
+	fi
+	sed -n 's/^'$2'=\(.*\)$/\1/p' "$1"
+}
+
+setpropf () {
+	if [ -z "${2:-}" ]; then
+		return 1
+	elif [ -n "$1" ] && [ ! -s "$1" ]; then
+		printf "# lock file\n" > $1
+	fi
+	sed -i -e '/^\('$2'=\).*/{s//\1'$3'/;:a;n;ba;q}' \
+		-e '$a'$2'='$3'' $1
+}
+
+check_resolvers () {
+	resolvers="$1"
+	minisig="$resolvers.minisig"
+	
+	if [ -e "$resolvers" -a -e "$minisig" ]; then
+		timegen=$(sed -n 's/.*timestamp:*\([0-9]\{1,\}\).*/\1/p' $minisig)
+		if [ -n "${timegen:-}" ]; then
+			return 0
+		fi
+		timestamp=$(date +%s)
+		let "_time=(timestamp-timegen)/3600"
+		if [ "$_time" -lt "96" ]; then # updated every 4 days
+			return 0
+		fi
+	fi
+	return 1
+}
+
+get_fpid () {
+	_daemon="$1"
+	_pidfile="$2"
+	
+	if [ -z "${_pidfile:-}" ]; then
+		base=${_daemon##*/}
+		_pidfile="/data/local/tmp/$base.pid"
+	fi
+	
+	if [ -e "$_pidfile" ]; then
+		if [ -r "$_pidfile" ]; then
+			read pid < "$_pidfile"
+			if [ -n "${pid:-}" ]; then
+				echo "$pid" || true
+				return 0
+			fi
+		else
+			return 2
+		fi
+	fi
+	
+	return 1
+}
+
+status_of_proc () {
+	_daemon="$1"
+	_pidfile="$2"
+	
+	PIDTMP=$(get_fpid "$_daemon" "$_pidfile" > /dev/null 2>&1)
+	RETVAL="$?"
+	
+	if [ "$RETVAL" = 0 ]; then
+		if $(kill -0 "${PIDTMP:-}" 2> /dev/null); then
+			return 0
+		elif ps "${PIDTMP:-}" >/dev/null 2>&1; then
+			return 0 # program is running, but not owned by this user
+		else
+			return 1
+		fi		
+	elif [ "$RETVAL" = 1 ]; then
+		if [ -x /system/bin/pidof ]; then
+			status="0"
+			/system/bin/pidof -o %PPID $_daemon > /dev/null 2>&1 || status="$?"
+			if [ "$status" = 1 ]; then
+         	 	return 2
+			fi
+			return 0
+		fi
+		return 2
+	elif [ "$RETVAL" = 2 ]; then
+		return 3
+	fi
+	
+	return 4 # Unable to determine status
+}
+
+_kp_call () {
+	if $(kill -0 "${2:-}" 2>/dev/null); then
+		kill "$1" "${2:-}" 2>/dev/null
+		return 1
+	fi
+}
+
+killproc () {
+	_daemon="$1"
+	_pidfile="$2"
+	
+	PIDTMP=$(get_fpid "$_daemon" "$_pidfile" > /dev/null 2>&1)
+	RETVAL="$?"
+	
+	if [ "$RETVAL" -ne "0" ] || 
+	  [ ! $(kill -0 "${PIDTMP:-}" 2>/dev/null) ]; then
+		if [ -x /system/bin/pidof ]; then
+			PIDTMP=$(/system/bin/pidof -o %PPID $_daemon > /dev/null 2>&1)
+		fi
+	fi
+	
+	if [ -n "${PIDTMP:-}" ]; then
+		KILL_FLAGS=("-TERM" "-KILL")
+		for flag in "${KILL_FLAGS[@]}" ; do
+			wait_for_daemon _kp_call "$flag" "$PIDTMP"
+		done
+		
+		return 0
+	fi
+	
+	return 1
+}
+
+WAITFORDAEMON=
+
+wait_for_daemon () {
+	_timeout=0
+	while :; do
+		let _timeout=$_timeout+1
+		
+		[ "$_timeout" -gt "$WAITFORDAEMON" ] && return 1
+		"$@" && break
+		
+		progressbar "$_timeout" "$WAITFORDAEMON"
+		
+		sleep 1
+	done
+}
+
+progressbar () {
+   _start=$1
+   _end=$2
+
+   let "_progress=(${_start}*100/${_end}*100)/100"
+   let "_done=(${_progress}*4)/10"
+   let _left=40-$_done
+		
+   fill=$(printf "%${_done}s")
+   empty=$(printf "%${_left}s")
+   printf "\r[${fill// /\#}${empty// /-}] ${_progress}%%"
+}
+
+## Iptables rules ##
+
+IPTABLES=/system/bin/iptables
+WIFI_INT="wlan0"
+PROXY_PORT=5353
+
+do_iptables_rules () {
+	case "$1" in
+		0) # enable
+			enable_rules
+			;;
+		1) # disable
+			disable_rules
+			;;
+	esac
+}
+
+enable_rules () {
+	disable_rules
+	$IPTABLES -t nat -A OUTPUT -p tcp --dport 53 -j DNAT --to-destination 127.0.0.1:$PROXY_PORT
+	$IPTABLES -t nat -A OUTPUT -p udp --dport 53 -j DNAT --to-destination 127.0.0.1:$PROXY_PORT
+}
+
+disable_rules () {
+	IPvX=( "$IPTABLES" )
+	
+	for ipt in "${IPvX[@]}" ; do
+		while $ipt -n -t nat -L OUTPUT | grep -q "DNAT.*tcp.*dpt:53.*to:127.0.0.1:$PROXY_PORT" ; do
+			$ipt -t nat -D OUTPUT -p tcp --dport 53 -j DNAT --to-destination 127.0.0.1:$PROXY_PORT
+		done
+		while $ipt -n -t nat -L OUTPUT | grep -q "DNAT.*udp.*dpt:53.*to:127.0.0.1:$PROXY_PORT" ; do
+			$ipt -t nat -D OUTPUT -p udp --dport 53 -j DNAT --to-destination 127.0.0.1:$PROXY_PORT
+		done
+	done
+}
+
+ipv4_addr_lock () {
+	$IPTABLES -P INPUT DROP
+	$IPTABLES -P OUTPUT DROP
+	$IPTABLES -P FORWARD DROP
+	echo "1" > /proc/sys/net/ipv4/conf/all/disable_policy
+	echo "1" > /proc/sys/net/ipv4/conf/default/disable_policy
+	if [ -d /proc/sys/net/ipv4/conf/$WIFI_INT ]; then
+		echo "1" > /proc/sys/net/ipv4/conf/$WIFI_INT/disable_policy
+	fi
+}
+
+ipv4_addr_unlock () {
+	$IPTABLES -P INPUT ACCEPT
+	$IPTABLES -P OUTPUT ACCEPT
+	$IPTABLES -P FORWARD ACCEPT
+	echo "0" > /proc/sys/net/ipv4/conf/all/disable_policy
+	echo "0" > /proc/sys/net/ipv4/conf/default/disable_policy
+	if [ -d /proc/sys/net/ipv4/conf/$WIFI_INT ]; then
+		echo "0" > /proc/sys/net/ipv4/conf/$WIFI_INT/disable_policy
+	fi
+}
