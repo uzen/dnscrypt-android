@@ -18,17 +18,17 @@ setpropf () {
 }
 
 check_resolvers () {
-	resolvers="$1"
-	minisig="$resolvers.minisig"
+	local _resolvers="$1"
+	local _minisig="${_resolvers}.minisig"
 	
-	if [ -e "$resolvers" -a -e "$minisig" ]; then
-		timegen=$(sed -n 's/.*timestamp:*\([0-9]\{1,\}\).*/\1/p' $minisig)
+	if [ -e "$_resolvers" -a -e "$_minisig" ]; then
+		timegen=$(sed -n 's/.*timestamp:*\([0-9]\{1,\}\).*/\1/p' $_minisig)
 		if [ -n "${timegen:-}" ]; then
 			return 0
 		fi
 		timestamp=$(date +%s)
-		let "_time=(timestamp-timegen)/3600"
-		if [ "$_time" -lt "96" ]; then # updated every 4 days
+		let "time=(timestamp-timegen)/3600"
+		if [ "$time" -lt "96" ]; then # updated every 4 days
 			return 0
 		fi
 	fi
@@ -36,13 +36,7 @@ check_resolvers () {
 }
 
 get_fpid () {
-	_daemon="$1"
-	_pidfile="$2"
-	
-	if [ -z "${_pidfile:-}" ]; then
-		base=${_daemon##*/}
-		_pidfile="/data/local/tmp/$base.pid"
-	fi
+	_pidfile="$1"
 	
 	if [ -e "$_pidfile" ]; then
 		if [ -r "$_pidfile" ]; then
@@ -63,14 +57,14 @@ status_of_proc () {
 	_daemon="$1"
 	_pidfile="$2"
 	
-	PIDTMP=$(get_fpid "$_daemon" "$_pidfile" > /dev/null 2>&1)
+	PIDTMP=$(get_fpid "$_pidfile")
 	RETVAL="$?"
 	
 	if [ "$RETVAL" = 0 ]; then
-		if $(kill -0 "${PIDTMP:-}" 2> /dev/null); then
+		if kill -0 "${PIDTMP:-}" 2> /dev/null; then
 			return 0
-		elif ps "${PIDTMP:-}" >/dev/null 2>&1; then
-			return 0 # program is running, but not owned by this user
+		elif ps | grep "$_daemon" | grep -qv grep; then
+			return 0
 		else
 			return 1
 		fi		
@@ -91,31 +85,24 @@ status_of_proc () {
 	return 4 # Unable to determine status
 }
 
-_kp_call () {
-	if $(kill -0 "${2:-}" 2>/dev/null); then
-		kill "$1" "${2:-}" 2>/dev/null
-		return 1
-	fi
-}
-
 killproc () {
 	_daemon="$1"
 	_pidfile="$2"
 	
-	PIDTMP=$(get_fpid "$_daemon" "$_pidfile" > /dev/null 2>&1)
+	PIDTMP=$(get_fpid "$_pidfile")
 	RETVAL="$?"
-	
-	if [ "$RETVAL" -ne "0" ] || 
-	  [ ! $(kill -0 "${PIDTMP:-}" 2>/dev/null) ]; then
+
+	if [ "$RETVAL" -ne "0" ] &&
+	  [ ! kill -0 "${PIDTMP:-}" 2>/dev/null ]; then
 		if [ -x /system/bin/pidof ]; then
-			PIDTMP=$(/system/bin/pidof -o %PPID $_daemon > /dev/null 2>&1)
+			PIDTMP=$(/system/bin/pidof -o %PPID "$_daemon")
 		fi
 	fi
-	
+
 	if [ -n "${PIDTMP:-}" ]; then
 		KILL_FLAGS=("-TERM" "-KILL")
 		for flag in "${KILL_FLAGS[@]}" ; do
-			wait_for_daemon _kp_call "$flag" "$PIDTMP"
+			wait_for_daemon $(kill "$flag" "$PIDTMP" 2>/dev/null) 
 		done
 		
 		return 0
@@ -124,7 +111,7 @@ killproc () {
 	return 1
 }
 
-WAITFORDAEMON=
+WAITFORDAEMON=30
 
 wait_for_daemon () {
 	_timeout=0
@@ -134,23 +121,8 @@ wait_for_daemon () {
 		[ "$_timeout" -gt "$WAITFORDAEMON" ] && return 1
 		"$@" && break
 		
-		progressbar "$_timeout" "$WAITFORDAEMON"
-		
 		sleep 1
 	done
-}
-
-progressbar () {
-   _start=$1
-   _end=$2
-
-   let "_progress=(${_start}*100/${_end}*100)/100"
-   let "_done=(${_progress}*4)/10"
-   let _left=40-$_done
-		
-   fill=$(printf "%${_done}s")
-   empty=$(printf "%${_left}s")
-   printf "\r[${fill// /\#}${empty// /-}] ${_progress}%%"
 }
 
 ## Iptables rules ##
@@ -159,33 +131,18 @@ IPTABLES=/system/bin/iptables
 WIFI_INT="wlan0"
 PROXY_PORT=5353
 
-do_iptables_rules () {
-	case "$1" in
-		0) # enable
-			enable_rules
-			;;
-		1) # disable
-			disable_rules
-			;;
-	esac
-}
-
-enable_rules () {
-	disable_rules
+iptrules_on () {
+	iptrules_off
 	$IPTABLES -t nat -A OUTPUT -p tcp --dport 53 -j DNAT --to-destination 127.0.0.1:$PROXY_PORT
 	$IPTABLES -t nat -A OUTPUT -p udp --dport 53 -j DNAT --to-destination 127.0.0.1:$PROXY_PORT
 }
 
-disable_rules () {
-	IPvX=( "$IPTABLES" )
-	
-	for ipt in "${IPvX[@]}" ; do
-		while $ipt -n -t nat -L OUTPUT | grep -q "DNAT.*tcp.*dpt:53.*to:127.0.0.1:$PROXY_PORT" ; do
-			$ipt -t nat -D OUTPUT -p tcp --dport 53 -j DNAT --to-destination 127.0.0.1:$PROXY_PORT
-		done
-		while $ipt -n -t nat -L OUTPUT | grep -q "DNAT.*udp.*dpt:53.*to:127.0.0.1:$PROXY_PORT" ; do
-			$ipt -t nat -D OUTPUT -p udp --dport 53 -j DNAT --to-destination 127.0.0.1:$PROXY_PORT
-		done
+iptrules_off () {
+	while $IPTABLES -n -t nat -L OUTPUT | grep -q "DNAT.*tcp.*dpt:53.*to:127.0.0.1:$PROXY_PORT" ; do
+		$IPTABLES -t nat -D OUTPUT -p tcp --dport 53 -j DNAT --to-destination 127.0.0.1:$PROXY_PORT
+	done
+	while $IPTABLES -n -t nat -L OUTPUT | grep -q "DNAT.*udp.*dpt:53.*to:127.0.0.1:$PROXY_PORT" ; do
+		$IPTABLES -t nat -D OUTPUT -p udp --dport 53 -j DNAT --to-destination 127.0.0.1:$PROXY_PORT
 	done
 }
 
