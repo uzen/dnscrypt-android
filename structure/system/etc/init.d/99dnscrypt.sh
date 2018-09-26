@@ -105,7 +105,7 @@ do_start () {
 do_stop () {    
     if ! killproc "$DAEMON" "$PIDFILE"; then
         log_debug_msg "$DAEMON died: process not running or permission denied"
-        exit 1
+        killall $NAME >/dev/null 2>&1
     fi
     
     log_debug_msg "disabling iptables firewall rules"
