@@ -37,17 +37,18 @@ set_prop () { setpropf "$LOCKFILE" "$1" "$2"; }
 
 check_health () {
     if [ -s "$LOCKFILE" ]; then
-        if [ "$(get_prop 'dnscrypt-resolvers')" = "none" ]; then         
+        if [ grep -q "dnscrypt-resolvers=" "$LOCKFILE" ]; then
             resolvers="public-resolvers.md"
             minisig="$resolvers.minisig"
 				
+            DNSCRYPT_RESOLV_PATH="$(get_prop 'dnscrypt-resolvers')"
             confdir=${DNSCRYPT_RESOLV_PATH:-`dirname "$CONFIG_FILE"`}
             
-         	if check_resolvers $confdir/$resolvers; then
-					log_debug_msg "copy $confdir/$resolvers to $PIDDIR..."
-					cp $confdir/{$resolvers,$minisig} $PIDDIR/
-				else
-					log_debug_msg "$confdir/$resolvers(.minisig): file not found"
+            if check_resolvers $confdir/$resolvers; then
+                log_debug_msg "copy $confdir/$resolvers to $PIDDIR..."
+                cp $confdir/{$resolvers,$minisig} $PIDDIR/
+            else
+                log_debug_msg "$confdir/$resolvers(.minisig): file not found"
             fi
         fi
         
@@ -62,7 +63,7 @@ check_health () {
 }
 
 _wfd_call () {
-	if ! ls "$PIDDIR"/*.md 2>/dev/null; the
+	if ! ls "$PIDDIR"/*.md 2>/dev/null; then
 		return 1
 	fi
 }
@@ -87,7 +88,7 @@ do_start () {
        0)
             if ! wait_for_daemon _wfd_call; then
                 log_error_msg "the resolvers file couldn't be uploaded?"
-                set_prop "dnscrypt-resolvers" "none"
+                set_prop "dnscrypt-resolvers" ""
                 return 10
             fi
             log_debug_msg "enabling iptables firewall rules"
@@ -105,7 +106,7 @@ do_start () {
 do_stop () {    
     if ! killproc "$DAEMON" "$PIDFILE"; then
         log_debug_msg "$DAEMON died: process not running or permission denied"
-        exit 1
+        killall $NAME >/dev/null 2>&1
     fi
     
     log_debug_msg "disabling iptables firewall rules"
@@ -119,7 +120,7 @@ do_stop () {
 }
 
 do_restart () {
-    status_of_proc "$DAEMON" "$PIDFILE" && do_stop
+    do_stop
     sleep 1
     do_start
 }
@@ -136,7 +137,7 @@ case "$1" in
             elif [[ $arg == -r || $arg == --resolv_path ]]; then
                 :
             elif [[ $prev == -r || $prev == --resolv_path ]]; then
-                DNSCRYPT_RESOLV_PATH=$arg
+                set_prop "dnscrypt-resolvers" "$arg" # use with --force flag
             else
                 echo Unrecognized argument $arg
                 exit 2
@@ -148,7 +149,7 @@ case "$1" in
         do_start || status="$?"
         
         if [[ "$status" -ne 0 && "$DNSCRYPT_FORCE" = 1 ]]; then
-            log_debug_msg "restart $DESC"
+            log_debug_msg "restore $DESC (#$status)"
             do_restart
         fi
         ;;
@@ -156,7 +157,10 @@ case "$1" in
         log_debug_msg "stopping $DESC"
         do_stop
         ;;
-  restart) do_restart ;;
+  restart)
+        log_debug_msg "restart $DESC"
+        do_restart 
+        ;;
   status)
         status="0"
         status_of_proc "$DAEMON" "$PIDFILE" || status="$?"

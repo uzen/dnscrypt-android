@@ -28,7 +28,7 @@ check_resolvers () {
 		fi
 		timestamp=$(date +%s)
 		let "time=(timestamp-timegen)/3600"
-		if [ "$time" -lt "96" ]; then # updated every 4 days
+		if [ "$time" -lt 96 ]; then # updated every 4 days
 			return 0
 		fi
 	fi
@@ -36,11 +36,9 @@ check_resolvers () {
 }
 
 get_fpid () {
-	_pidfile="$1"
-	
-	if [ -e "$_pidfile" ]; then
-		if [ -r "$_pidfile" ]; then
-			read pid < "$_pidfile"
+	if [ -e "$1" ]; then
+		if [ -r "$1" ]; then
+			read pid < "$1"
 			if [ -n "${pid:-}" ]; then
 				echo "$pid" || true
 				return 0
@@ -90,9 +88,8 @@ killproc () {
 	_pidfile="$2"
 	
 	PIDTMP=$(get_fpid "$_pidfile")
-	RETVAL="$?"
 
-	if [ "$RETVAL" -ne "0" ] &&
+	if [ "$?" -ne 0 ] &&
 	  [ ! kill -0 "${PIDTMP:-}" 2>/dev/null ]; then
 		if [ -x /system/bin/pidof ]; then
 			PIDTMP=$(/system/bin/pidof -o %PPID "$_daemon")
