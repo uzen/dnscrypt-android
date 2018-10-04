@@ -140,7 +140,6 @@ case "$1" in
                 set_prop "dnscrypt-resolvers" "$arg" # use with --force flag
             else
                 echo Unrecognized argument $arg
-                exit 2
             fi
             prev=$arg
         done
@@ -148,7 +147,7 @@ case "$1" in
         status="0"
         do_start || status="$?"
         
-        if [[ "$status" -ne 0 && "$DNSCRYPT_FORCE" = 1 ]]; then
+        if [[ "$status" -ne 0 || "$DNSCRYPT_FORCE" = 1 ]]; then
             log_debug_msg "restore $DESC (#$status)"
             do_restart
         fi
