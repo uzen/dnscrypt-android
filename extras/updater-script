@@ -14,7 +14,7 @@ set_progress(0.600000);
 
 ui_print("Extracting binary files...");
 set_perm(0, 0, 0755, "/system/addon.d/99-dnscrypt.sh");
-package_extract_dir("dynamic", "/tmp");
+package_extract_dir("vendor", "/tmp/vendor");
 package_extract_file("install.sh", "/tmp/install.sh");
 set_perm(0, 0, 0777, "/tmp/install.sh");
 run_program("/tmp/install.sh", "");

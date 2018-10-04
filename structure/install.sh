@@ -1,11 +1,12 @@
-#!/sbin/sh
+#!/sbin/sh 
 
-# Variables
+# Add files to folder with the name of architecture
+# vendor/ armeabi armeabi-v7a arm64-v8a x86 x86_64 ...
+
 ARCH=$(grep ro.product.cpu.abi= /system/build.prop | cut -d "=" -f 2);
 
-if [ $ARCH == armeabi-v7a ]; then
- 	cp -af /tmp/binary-arm/dnscrypt-proxy /system/xbin
-elif [ $ARCH == arm64-v8a ]; then
- 	cp -af /tmp/binary-arm64/dnscrypt-proxy /system/xbin
+# /system/xbin/dnscrypt-proxy
+BINARY_PATH=vendor/$ARCH/xbin/dnscrypt-proxy
+if [ -f /tmp/$BINARY_PATH ]; then
+    cp -af /tmp/$BINARY_PATH /system/xbin
 fi
-
