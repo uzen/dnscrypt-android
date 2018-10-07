@@ -13,15 +13,9 @@
     <!-- some variables                                                        -->
     <!--=======================================================================-->
     <property name="app.name"                     value="buildApps"/>
-    <property name="app.dir"                      value="${basedir}"/>
-    <property name="work.dir"                     value="${app.dir}/work"/>
-    <property name="build.dir"                    value="${app.dir}/build"/>
-    <property name="structure.dir"                value="${app.dir}/structure"/>
-    <property name="sign.jar"                     value="${app.dir}/tools/signapk.jar"/>
-    <property name="sign.pem"                     value="${app.dir}/tools/testkey.x509.pem"/>
-    <property name="sign.pk8"                     value="${app.dir}/tools/testkey.pk8"/>
-    <property name="extra.dir"                    value="${app.dir}/extras"/>
-    <property name="dynamic.dir"                  value="${structure.dir}/dynamic"/>
+    <property name="sign.jar"                     value="${basedir}/tools/signapk.jar"/>
+    <property name="sign.pem"                     value="${basedir}/tools/testkey.x509.pem"/>
+    <property name="sign.pk8"                     value="${basedir}/tools/testkey.pk8"/>
     <tstamp>  
         <format property="build.today" pattern="yyyyMMdd"/>
     </tstamp>  
@@ -30,34 +24,46 @@
     <!-- complete build                                                        -->
     <!--=======================================================================-->
     <target name="buildAll"
-            depends="cleanupBefore,initit,generateCleanUpList,buildPackage,cleanupAfter"
+            depends="cleanupBefore,initit,generateCleanUpList,buildARMPackage,buildX86Package,cleanupAfter"
             description="execute complete build"/>
 
     <!--=======================================================================-->
     <!-- project                                                                  -->
     <!--=======================================================================-->
-    <target name="buildPackage"
-            description="execute build the package">
+    <target name="buildARMPackage">
         <!-- preparations -->
         <property environment="env"/>
-        <property name="file.name" value="${build.dir}/${PRODUCT_VERSION_NAME}-${PRODUCT_VERSION_MAJOR}-${PRODUCT_VERSION_DNSCRYPT}-${build.today}.zip"/>
+        <property name="file.name.arm" value="${build.dir}/${PRODUCT_VERSION_NAME}-${PRODUCT_VERSION_MAJOR}-${PRODUCT_VERSION_DNSCRYPT}-ARM-${build.today}.zip"/>
         <delete dir="${work.dir}"/>
         <propertyfile file="${build.dir}/props.filenames">
-            <entry key="filename" value="${file.name}"/>
+            <entry key="armfilename" value="${file.name.arm}"/>
         </propertyfile>
+
         <!-- copy files -->
         <copy todir="${work.dir}">
-            <fileset dir="${structure.dir}" />
+            <fileset dir="${source.dir}" >
+            	<exclude name="vendor/**"/>
+            </fileset>
+            <fileset dir="${source.dir}" >
+            	<include name="vendor/armeabi-v7a/**/*"/>
+                <include name="vendor/arm64-v8a/**/*"/>
+            </fileset>
         </copy>
         
-        <copy file="${app.dir}/extras/updater-script" todir="${work.dir}/META-INF/com/google/android" />
+        <copy todir="${work.dir}/system/etc/dnscrypt-proxy">
+            <fileset dir="${git.resolvers.dir}/v2" >
+            	<include name="public-resolvers*"/>
+            </fileset>
+        </copy>
+        
+        <copy file="${extra.dir}/updater-script" todir="${work.dir}/META-INF/com/google/android" />
         
         <!-- generate backup script --> 
         <fileset id="item.file" dir="${work.dir}/system" includes="**/*"/>
         <pathconvert refid="item.file" property="file.list" pathsep="&#10;" dirsep="/">
             <map from="${work.dir}/system/" to=''/>
         </pathconvert>
-        <copy file="${app.dir}/extras/99-dnscrypt.sh" todir="${work.dir}/system/addon.d">
+        <copy file="${extra.dir}/99-dnscrypt.sh" todir="${work.dir}/system/addon.d">
             <filterchain>
                 <replaceregex pattern="@file.list@" replace="${file.list}" flags="i"/>
             </filterchain>
@@ -65,7 +71,53 @@
 
         <!-- zip and sign it --> 
         <antcall target="ZipAndSigning">
-            <param name="hfile.name" value="${file.name}"/>
+            <param name="hfile.name" value="${file.name.arm}"/>
+        </antcall>
+
+    </target>
+    
+    <target name="buildX86Package">
+        <!-- preparations -->
+        <property environment="env"/>
+        <property name="file.name.x86" value="${build.dir}/${PRODUCT_VERSION_NAME}-${PRODUCT_VERSION_MAJOR}-${PRODUCT_VERSION_DNSCRYPT}-X86-${build.today}.zip"/>
+        <delete dir="${work.dir}"/>
+        <propertyfile file="${build.dir}/props.filenames">
+            <entry key="x86filename" value="${file.name.x86}"/>
+        </propertyfile>
+
+        <!-- copy files -->
+        <copy todir="${work.dir}">
+            <fileset dir="${source.dir}" >
+            	<exclude name="vendor/**"/>
+            </fileset>
+            <fileset dir="${source.dir}" >
+            	<include name="vendor/X86/**/*"/>
+                <include name="vendor/X86_64/**/*"/>
+            </fileset>
+        </copy>
+        
+        <copy todir="${work.dir}/system/etc/dnscrypt-proxy">
+            <fileset dir="${git.resolvers.dir}/v2" >
+            	<include name="public-resolvers*"/>
+            </fileset>
+        </copy>
+        
+        <copy file="${extra.dir}/updater-script" todir="${work.dir}/META-INF/com/google/android" />
+        
+        <!-- generate backup script --> 
+        <fileset id="item.file" dir="${work.dir}/system" includes="**/*"/>
+        <pathconvert refid="item.file" property="file.list" pathsep="&#10;" dirsep="/">
+            <map from="${work.dir}/system/" to=''/>
+        </pathconvert>
+        <copy file="${extra.dir}/99-dnscrypt.sh" todir="${work.dir}/system/addon.d">
+            <filterchain>
+                <replaceregex pattern="@file.list@" replace="${file.list}" flags="i"/>
+            </filterchain>
+        </copy>
+
+        <!-- zip and sign it --> 
+        <antcall target="ZipAndSigning">
+            <param name="hfile.name" value="${file.name.x86}"/>
         </antcall>
 
     </target>
@@ -78,7 +130,7 @@
             <fileset dir="${extra.dir}">
                 <include name="*.sh"/>
             </fileset>
-            <fileset dir="${structure.dir}/system"/>
+            <fileset dir="${source.dir}/system"/>
         </path>
     </target>
 
@@ -122,6 +174,7 @@
             description="initiating-steps">
         <mkdir dir="${build.dir}"/>
         <mkdir dir="${work.dir}"/>
+        <git-clone-pull repository="${git.resolvers.source}" dest="${git.resolvers.dir}" />
     </target>
 
     <!--=======================================================================-->
@@ -133,5 +186,36 @@
         <property name="x.dir" value="test9899"/>
         <echo message="${x.dir}"/>
     </target>
+    
+    <!--=======================================================================-->
+    <!-- git command                                                          -->
+    <!--=======================================================================-->
+    
+    <macrodef name = "git">
+	    <attribute name = "command" />
+	    <attribute name = "dir" default = "" />
+	    <element name = "args" optional = "true" />
+	    <sequential>
+	        <echo message = "git @{command}" />
+	        <exec executable = "git" dir = "@{dir}">
+	            <arg value = "@{command}" />
+	            <args/>
+	        </exec>
+	    </sequential>
+	</macrodef>
+	
+	<macrodef name = "git-clone-pull">
+	    <attribute name = "repository" />
+	    <attribute name = "dest" />
+	    <sequential>
+	        <git command = "clone">
+	            <args>
+	                <arg value = "@{repository}" />
+	                <arg value = "@{dest}" />
+	            </args>
+	        </git>
+	        <git command = "pull" dir = "@{dest}" />
+	    </sequential>
+	</macrodef>
 
 </project>
