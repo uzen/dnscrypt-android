@@ -12,8 +12,8 @@ LOCKFILE=$PIDDIR/dnscrypt-proxy.lock
 CONFIG_FILE=/etc/dnscrypt-proxy/dnscrypt-proxy.toml
 DESC="dns client proxy"
 
-
-. /system/etc/dnscrypt-proxy/init-functions
+. /etc/dnscrypt-proxy/iptables-rules
+. /etc/dnscrypt-proxy/init-functions
 
 # Exit if the package is not installed
 test -x $DAEMON || exit 0
@@ -21,14 +21,14 @@ test -x $DAEMON || exit 0
 log_debug_msg () {
 	if [ -n "${1:-}" ]; then
 		echo "[D] $NAME: $@" || true
-		log -p d -t $NAME "$@" || true
+		log -p d -t $NAME "$@"
 	fi
 }
 
 log_error_msg () {
 	if [ -n "${1:-}" ]; then
 		echo "[E] $NAME: $@" || true
-		log -p e -t $NAME "$@" || true
+		log -p e -t $NAME "$@"
 	fi
 }
 
@@ -86,7 +86,9 @@ do_start () {
 
     case "$status" in
        0)
-            if ! wait_for_daemon _wfd_call; then
+            if [[ "$DNSCRYPT_NOLIST" = 1 ]]; then
+            	sleep $WAITFORDAEMON
+            elif ! wait_for_daemon _wfd_call; then
                 log_error_msg "the resolvers file couldn't be uploaded?"
                 set_prop "dnscrypt-resolvers" ""
                 return 10
@@ -105,7 +107,6 @@ do_start () {
 
 do_stop () {    
     if ! killproc "$DAEMON" "$PIDFILE"; then
-        log_debug_msg "$DAEMON died: process not running or permission denied"
         killall $NAME >/dev/null 2>&1
     fi
     
@@ -134,6 +135,8 @@ case "$1" in
                 continue
             elif [[ $arg == -f || $arg == --force ]]; then
                 DNSCRYPT_FORCE=1
+            elif [[ $arg == -s || $arg == --no-lists ]]; then
+                DNSCRYPT_NOLIST=1
             elif [[ $arg == -r || $arg == --resolv_path ]]; then
                 :
             elif [[ $prev == -r || $prev == --resolv_path ]]; then
@@ -144,9 +147,9 @@ case "$1" in
             prev=$arg
         done
         
-        status="0"
-        do_start || status="$?"
+        do_start
         
+        status="$?"     
         if [[ "$status" -ne 0 || "$DNSCRYPT_FORCE" = 1 ]]; then
             log_debug_msg "restore $DESC (#$status)"
             do_restart
