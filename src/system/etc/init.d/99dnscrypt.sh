@@ -42,7 +42,7 @@ check_health () {
             export "$KEY=$VALUE"
         done < $LOCKFILE
     
-        if [ -z "${DNSCRYPT_RESOLV_PATH:-}" ]; then
+        if [ -z "${DNSCRYPT_RESOLV_PATH+x}" ]; then
             confdir=${DNSCRYPT_RESOLV_PATH:-`dirname "$CONFIG_FILE"`}
 
             resolvers=$(ls $confdir/*.md 2>/dev/null)
@@ -56,7 +56,7 @@ check_health () {
             done
         fi
         
-        if [ -z "${DNSCRYPT_ADDR_LOCK:-}" ]; then
+        if [ -z "${DNSCRYPT_ADDR_LOCK+x}" ]; then
             log_debug_msg "ipv4_addr_unlock: enable IPv4"
             ipv4_addr_unlock
         fi
