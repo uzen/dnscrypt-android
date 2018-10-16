@@ -37,22 +37,26 @@ set_prop () { setpropf "$LOCKFILE" "$1" "$2"; }
 
 check_health () {
     if [ -s "$LOCKFILE" ]; then
-        if [ grep -q "dnscrypt-resolvers=" "$LOCKFILE" ]; then
-            resolvers="public-resolvers.md"
-            minisig="$resolvers.minisig"
-				
-            DNSCRYPT_RESOLV_PATH="$(get_prop 'dnscrypt-resolvers')"
+        while IFS== read -r KEY VALUE || [[ -n $KEY ]]; do
+            [[ "$KEY" = [#!]* ]] && continue;
+            export "$KEY=$VALUE"
+        done < $LOCKFILE
+    
+        if [ -z "${DNSCRYPT_RESOLV_PATH:-}" ]; then
             confdir=${DNSCRYPT_RESOLV_PATH:-`dirname "$CONFIG_FILE"`}
-            
-            if check_resolvers $confdir/$resolvers; then
-                log_debug_msg "copy $confdir/$resolvers to $PIDDIR..."
-                cp $confdir/{$resolvers,$minisig} $PIDDIR/
-            else
-                log_debug_msg "$confdir/$resolvers(.minisig): file not found"
-            fi
+
+            resolvers=$(ls $confdir/*.md 2>/dev/null)
+            for file in "$resolvers"; do
+            	if check_resolvers $file; then
+            		log_debug_msg "copy $file to $PIDDIR..."
+            		cp $file $file.minisig $PIDDIR
+            	else
+            		log_debug_msg "$file(.minisig): file not found"
+            	fi
+            done
         fi
         
-        if [ "$(get_prop 'ipv4-enabled')" = "false" ]; then
+        if [ -z "${DNSCRYPT_ADDR_LOCK:-}" ]; then
             log_debug_msg "ipv4_addr_unlock: enable IPv4"
             ipv4_addr_unlock
         fi
@@ -60,12 +64,6 @@ check_health () {
         log_debug_msg "$LOCKFILE file has been removed"     
         rm -f "$LOCKFILE"
     fi
-}
-
-_wfd_call () {
-	if ! ls "$PIDDIR"/*.md 2>/dev/null; then
-		return 1
-	fi
 }
 
 do_start () {
@@ -76,6 +74,12 @@ do_start () {
      
     mkdir -p -m 01755 "$PIDDIR" 2>/dev/null || \
         { log_debug_msg "cannot access $PIDDIR directory, are you root?"; exit 1; }
+        
+    if ! $DAEMON -check -config "$CONFIG_FILE" > /dev/null; then
+		log_error_msg "$NAME configuration is invalid"
+		set_prop "DNSCRYPT_RESOLV_PATH" ""
+		return 10
+    fi
 
     nohup $DAEMON -config "$CONFIG_FILE" \
          -pidfile="$PIDFILE" > /dev/null 2>&1 &
@@ -86,19 +90,14 @@ do_start () {
 
     case "$status" in
        0)
-            if [[ "$DNSCRYPT_NOLIST" = 1 ]]; then
-            	sleep $WAITFORDAEMON
-            elif ! wait_for_daemon _wfd_call; then
-                log_error_msg "the resolvers file couldn't be uploaded?"
-                set_prop "dnscrypt-resolvers" ""
-                return 10
-            fi
             log_debug_msg "enabling iptables firewall rules"
             iptrules_on
             ;;
        *) # offline
             log_error_msg "ipv4_addr_lock: disable IPv4 (#$status)"
-            ipv4_addr_lock && $(set_prop "ipv4-enabled" "false")
+            ipv4_addr_lock
+            
+            set_prop "DNSCRYPT_ADDR_LOCK" "1"
             return 1
             ;;
     esac
@@ -107,7 +106,7 @@ do_start () {
 
 do_stop () {    
     if ! killproc "$DAEMON" "$PIDFILE"; then
-        killall $NAME >/dev/null 2>&1
+        killall $NAME >/dev/null 2>&1 &
     fi
     
     log_debug_msg "disabling iptables firewall rules"
@@ -135,21 +134,18 @@ case "$1" in
                 continue
             elif [[ $arg == -f || $arg == --force ]]; then
                 DNSCRYPT_FORCE=1
-            elif [[ $arg == -s || $arg == --no-lists ]]; then
-                DNSCRYPT_NOLIST=1
             elif [[ $arg == -r || $arg == --resolv_path ]]; then
                 :
             elif [[ $prev == -r || $prev == --resolv_path ]]; then
-                set_prop "dnscrypt-resolvers" "$arg" # use with --force flag
+                set_prop "DNSCRYPT_RESOLV_PATH" "$arg" # use with --force flag
             else
                 echo Unrecognized argument $arg
             fi
             prev=$arg
         done
         
-        do_start
-        
-        status="$?"     
+        status="0"
+        do_start || status="$?"     
         if [[ "$status" -ne 0 || "$DNSCRYPT_FORCE" = 1 ]]; then
             log_debug_msg "restore $DESC (#$status)"
             do_restart
@@ -173,6 +169,8 @@ case "$1" in
           3) log_error_msg "could not access PID file" ;;    
           *) log_error_msg "$NAME is NOT running (#$status)" ;;
         esac
+        
+        $DAEMON -check -config "$CONFIG_FILE" >&2
 	
         exit $status
         ;;

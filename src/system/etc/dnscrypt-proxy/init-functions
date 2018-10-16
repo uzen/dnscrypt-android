@@ -28,7 +28,7 @@ check_resolvers () {
 		fi
 		timestamp=$(date +%s)
 		let "time=(timestamp-timegen)/3600"
-		if [ "$time" -lt 96 ]; then # updated every 4 days
+		if [ "$time" -lt 168 ]; then # updated every 7 days
 			return 0
 		fi
 	fi
@@ -83,6 +83,8 @@ status_of_proc () {
 	return 4 # Unable to determine status
 }
 
+WAITFORDAEMON=30
+
 killproc () {
 	_daemon="$1"
 	_pidfile="$2"
@@ -99,7 +101,7 @@ killproc () {
 	if [ -n "${PIDTMP:-}" ]; then
 		KILL_FLAGS=("-TERM" "-KILL")
 		for flag in "${KILL_FLAGS[@]}" ; do
-			wait_for_daemon $(kill "$flag" "$PIDTMP" 2>/dev/null) 
+			wait_for_daemon $WAITFORDAEMON $(kill "$flag" "$PIDTMP" 2>/dev/null) 
 		done
 		
 		return 0
@@ -108,14 +110,15 @@ killproc () {
 	return 1
 }
 
-WAITFORDAEMON=30
-
 wait_for_daemon () {
+	_wait=$1
 	_timeout=0
+	shift
+	
 	while :; do
 		let _timeout=$_timeout+1
 		
-		[ "$_timeout" -gt "$WAITFORDAEMON" ] && return 1
+		[ "$_timeout" -gt "$_wait" ] && return 1
 		"$@" && break
 		
 		sleep 1
