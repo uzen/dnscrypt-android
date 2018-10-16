@@ -1,6 +1,6 @@
 ﻿#!/sbin/sh
 # 
-# /system/addon.d/99-dnscrypt.sh
+# current version @file.version@
 # /system is formatted and reinstalled, then the file is restored.
 #
 

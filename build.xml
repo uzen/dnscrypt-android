@@ -33,7 +33,8 @@
     <target name="buildARMPackage">
         <!-- preparations -->
         <property environment="env"/>
-        <property name="file.name.arm" value="${build.dir}/${PRODUCT_VERSION_NAME}-${PRODUCT_VERSION_MAJOR}-${PRODUCT_VERSION_DNSCRYPT}-ARM-${build.today}.zip"/>
+        <property name="file.version.arm" value="${PRODUCT_VERSION_NAME}-${PRODUCT_VERSION_MAJOR}-${PRODUCT_VERSION_DNSCRYPT}-ARM"/>
+        <property name="file.name.arm" value="${build.dir}/${file.version.arm}-${build.today}.zip"/>
         <delete dir="${work.dir}"/>
         <propertyfile file="${build.dir}/props.filenames">
             <entry key="armfilename" value="${file.name.arm}"/>
@@ -65,6 +66,7 @@
         </pathconvert>
         <copy file="${extra.dir}/99-dnscrypt.sh" todir="${work.dir}/system/addon.d">
             <filterchain>
+                <replaceregex pattern="@file.version@" replace="${file.version.arm}" flags="i"/>
                 <replaceregex pattern="@file.list@" replace="${file.list}" flags="i"/>
             </filterchain>
         </copy>
@@ -79,7 +81,8 @@
     <target name="buildX86Package">
         <!-- preparations -->
         <property environment="env"/>
-        <property name="file.name.x86" value="${build.dir}/${PRODUCT_VERSION_NAME}-${PRODUCT_VERSION_MAJOR}-${PRODUCT_VERSION_DNSCRYPT}-X86-${build.today}.zip"/>
+        <property name="file.version.x86" value="${PRODUCT_VERSION_NAME}-${PRODUCT_VERSION_MAJOR}-${PRODUCT_VERSION_DNSCRYPT}-X86"/>
+        <property name="file.name.x86" value="${build.dir}/${file.version.x86}-${build.today}.zip"/>
         <delete dir="${work.dir}"/>
         <propertyfile file="${build.dir}/props.filenames">
             <entry key="x86filename" value="${file.name.x86}"/>
@@ -111,6 +114,7 @@
         </pathconvert>
         <copy file="${extra.dir}/99-dnscrypt.sh" todir="${work.dir}/system/addon.d">
             <filterchain>
+                <replaceregex pattern="@file.version@" replace="${file.version.x86}" flags="i"/>
                 <replaceregex pattern="@file.list@" replace="${file.list}" flags="i"/>
             </filterchain>
         </copy>
